@@ -5,24 +5,31 @@ import hashlib
 import hmac
 import json
 import os
+from pathlib import Path
 import secrets
 import time
 from typing import Any
 
 import pymysql
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pymysql.cursors import DictCursor
 from pydantic import BaseModel
 
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT = int(os.getenv("DB_PORT", "3306"))
 DB_USER = os.getenv("DB_USER", "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "L123456")
 DB_NAME = os.getenv("DB_NAME", "campus_cats")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-development")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_SECONDS = 60 * 60 * 24
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = BASE_DIR.parent
+UPLOAD_DIR = BASE_DIR / "uploads"
+FRONTEND_DIST_DIR = PROJECT_DIR / "frontend" / "dist"
 
 TABLES: dict[str, dict[str, Any]] = {
     "users": {
@@ -132,6 +139,17 @@ TABLES: dict[str, dict[str, Any]] = {
         """,
         "fields": ["donor_name", "donation_type", "amount", "material_name", "quantity", "donation_date", "contact", "remark"],
     },
+    "comments": {
+        "columns": """
+            id INT PRIMARY KEY AUTO_INCREMENT,
+            post_id INT NOT NULL,
+            author_name VARCHAR(100) NOT NULL,
+            content TEXT NOT NULL,
+            status VARCHAR(20),
+            created_at VARCHAR(20) NOT NULL
+        """,
+        "fields": ["post_id", "author_name", "content", "status"],
+    },
 }
 
 SEED_DATA: dict[str, list[dict[str, Any]]] = {
@@ -174,6 +192,8 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title="校园萌宠守护系统 API", lifespan=lifespan)
+UPLOAD_DIR.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,
@@ -488,9 +508,124 @@ def register_routes(path: str, table: str):
         return delete_item(table, item_id)
 
 
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+        raise HTTPException(status_code=400, detail="仅支持图片文件")
+    filename = f"{int(time.time() * 1000)}_{secrets.token_hex(8)}{suffix}"
+    target = UPLOAD_DIR / filename
+    content = await file.read()
+    target.write_bytes(content)
+    return {"url": f"http://127.0.0.1:8001/uploads/{filename}"}
+
+
+@app.get("/api/portal/stats")
+def portal_stats():
+    return dashboard_stats()
+
+
+@app.get("/api/portal/cats")
+def portal_cats(keyword: str | None = None, health_status: str | None = None, adoption_status: str | None = None):
+    return list_items("cats", {"keyword": keyword, "health_status": health_status, "adoption_status": adoption_status})
+
+
+@app.get("/api/portal/cats/{cat_id}")
+def portal_cat_detail(cat_id: int):
+    cat = get_item("cats", cat_id)
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM `health_records` WHERE cat_id = %s ORDER BY id DESC", [cat_id])
+            cat["health_records"] = [row_to_dict(row) for row in cursor.fetchall()]
+    return cat
+
+
+@app.get("/api/portal/posts")
+def portal_posts(category: str | None = None):
+    params = {"status": "显示", "category": category}
+    return list_items("posts", params)
+
+
+@app.get("/api/portal/posts/{post_id}")
+def portal_post_detail(post_id: int):
+    return get_item("posts", post_id)
+
+
+@app.post("/api/portal/posts")
+def portal_create_post(payload: ItemPayload):
+    data = dict(payload.data)
+    data["status"] = "显示"
+    data["likes"] = 0
+    return insert_item("posts", data)
+
+
+@app.post("/api/portal/posts/{post_id}/like")
+def portal_like_post(post_id: int):
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE `posts` SET likes = COALESCE(likes, 0) + 1 WHERE id = %s", [post_id])
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="动态不存在")
+            conn.commit()
+    return get_item("posts", post_id)
+
+
+@app.get("/api/portal/posts/{post_id}/comments")
+def portal_comments(post_id: int):
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM `comments` WHERE post_id = %s AND status = '显示' ORDER BY id DESC", [post_id])
+            return [row_to_dict(row) for row in cursor.fetchall()]
+
+
+@app.post("/api/portal/posts/{post_id}/comments")
+def portal_create_comment(post_id: int, payload: ItemPayload):
+    get_item("posts", post_id)
+    data = dict(payload.data)
+    data["post_id"] = post_id
+    data["status"] = "显示"
+    return insert_item("comments", data)
+
+
+@app.get("/api/portal/supplies")
+def portal_supplies(category: str | None = None):
+    return list_items("supplies", {"category": category})
+
+
+@app.post("/api/portal/adoptions")
+def portal_create_adoption(payload: ItemPayload):
+    data = dict(payload.data)
+    data["status"] = "待审核"
+    if not data.get("apply_time"):
+        data["apply_time"] = datetime.now().strftime("%Y-%m-%d")
+    return insert_item("adoptions", data)
+
+
+@app.post("/api/portal/donations")
+def portal_create_donation(payload: ItemPayload):
+    data = dict(payload.data)
+    if not data.get("donation_date"):
+        data["donation_date"] = datetime.now().strftime("%Y-%m-%d")
+    return insert_item("donations", data)
+
+
 register_routes("cats", "cats")
 register_routes("health-records", "health_records")
 register_routes("adoptions", "adoptions")
 register_routes("posts", "posts")
 register_routes("supplies", "supplies")
 register_routes("donations", "donations")
+
+if FRONTEND_DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST_DIR / "assets"), name="frontend-assets")
+
+
+@app.get("/{full_path:path}")
+def serve_frontend(full_path: str):
+    index_file = FRONTEND_DIST_DIR / "index.html"
+    target_file = FRONTEND_DIST_DIR / full_path
+    if target_file.exists() and target_file.is_file():
+        return FileResponse(target_file)
+    if index_file.exists():
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="前端页面未打包，请先在 frontend 目录执行 npm run build")
