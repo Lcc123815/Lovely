@@ -1,0 +1,1 @@
+{"scripts":{"dev":"vite --host 0.0.0.0","build":"vite build","preview":"vite preview --host 0.0.0.0"},"dependencies":{"@ant-design/icons":"latest","@vitejs/plugin-react":"latest","antd":"latest","axios":"latest","vite":"latest","react":"latest","react-dom":"latest","react-router-dom":"latest"},"devDependencies":{}}

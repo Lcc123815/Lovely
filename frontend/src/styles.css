@@ -1,0 +1,72 @@
+body {
+  margin: 0;
+  background: #f5f7fb;
+}
+
+.auth-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #fff7ed 0%, #fef3c7 45%, #f8fafc 100%);
+}
+
+.auth-card {
+  border-radius: 20px;
+  box-shadow: 0 18px 48px rgba(120, 53, 15, 0.14);
+}
+
+.auth-card .ant-card-head-title {
+  text-align: center;
+  font-size: 24px;
+  padding: 10px 0;
+}
+
+.logo {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.site-layout {
+  min-height: 100vh;
+}
+
+.header-bar {
+  background: #fff;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.08);
+}
+
+.page-content {
+  margin: 24px;
+}
+
+.page-card {
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.stat-card {
+  border-radius: 16px;
+}
+
+.cat-photo {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #f1f5f9;
+}
